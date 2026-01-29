@@ -1,0 +1,222 @@
+---
+title: "Pré-processamento — Censo Escolar (IIE) GERAL"
+author: "Lupa Social"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# 1. Objetivo e Escopo
+
+Este documento realiza o pré-processamento dos microdados do **Censo Escolar** para a construção do **Índice de Inclusão Educacional (IIE)**. 
+
+A unidade de análise é a **matrícula**. O objetivo final é classificar os alunos em quatro grupos mutuamente exclusivos com base em sua trajetória escolar (adiantado, em linha, atrasado 1 ano e atrasado 2 anos).
+
+> **Nota de Versão:** Este script processa dados até o ano de referência **2021**. Dados de 2023/2024 foram omitidos para garantir a consistência metodológica antes da liberação total do Censo 2024.
+
+> ### ⚠️ AVISO DE ACESSO AOS DADOS
+> Este pré-processamento é pautado nos **microdados do Censo Escolar**, que contêm informações individualizadas e protegidas por sigilo. O acesso a esses arquivos **requer autorização prévia do INEP** e o processamento deve ser realizado via **Sala Segura (SED/INEP)** ou ambiente controlado equivalente, respeitando a LGPD e os protocolos de segurança institucional.
+
+
+# 2. Configuração do Ambiente
+
+Carregamos o `tidyverse` para manipulação de dados e o `readr` para leitura otimizada.
+
+```{r pacotes}
+library(tidyverse)
+library(glue)
+library(readr) 
+```
+
+## 2.1 Parâmetros e Mapeamentos
+
+Aqui definimos as constantes do projeto. Observe que trocamos a lógica de diretórios para buscar arquivos `.csv`.
+
+```{r parametros}
+# Diretório onde os arquivos CSV estão armazenados
+BASE_DIR <- "../../Dados"
+
+# Parâmetros de Filtro (Censo Escolar)
+cod_3o_em   <- c(27, 28, 32, 33, 37, 38) # Códigos das etapas de 3º ano do EM
+excluir_etp <- c(29, 34, 39, 40)         # Etapas a serem excluídas (ex: EJA/Profissionalizante específico)
+aprovado    <- 5                         # Código para situação 'Aprovado'
+
+# Mapeamento: Ano de Nascimento (Coorte) -> Ano de Referência do IIE
+# Limitado até 2021 conforme solicitado
+ano_iie_map <- c(
+  `1998` = 2015, 
+  `2000` = 2017, 
+  `2002` = 2019, 
+  `2004` = 2021
+)
+
+# Estrutura de análise temporal (t-1, t, t+1) para cada coorte
+map_coorte_anos <- list(
+  `1998` = c(tm1 = 2014, t = 2015, tp1 = 2016),
+  `2000` = c(tm1 = 2016, t = 2017, tp1 = 2018),
+  `2002` = c(tm1 = 2018, t = 2019, tp1 = 2020),
+  `2004` = c(tm1 = 2020, t = 2021, tp1 = 2022)
+)
+```
+
+# 3. Funções de Processamento
+
+Para garantir que o código seja legível, isolamos a lógica de filtragem e regionalização em funções.
+
+```{r funcoes_auxiliares}
+# Converte código de UF em Nome da Região
+uf_to_regiao <- function(uf) {
+  dplyr::case_when(
+    uf %in% 11:17 ~ "Norte",
+    uf %in% 21:29 ~ "Nordeste",
+    uf %in% 31:35 ~ "Sudeste",
+    uf %in% 41:43 ~ "Sul",
+    uf %in% 50:53 ~ "Centro-Oeste",
+    uf == 0       ~ "Brasil",
+    TRUE          ~ NA_character_
+  )
+}
+
+# Aplica os filtros básicos do Censo Escolar
+filter_base_censo <- function(df) {
+  df %>%
+    dplyr::filter(
+      !is.na(tp_etapa_ensino),
+      !(tp_etapa_ensino %in% excluir_etp),
+      tp_etapa_ensino < 65
+    )
+}
+
+# Identifica apenas quem concluiu o 3º ano (Aprovados)
+em3_aprov <- function(df) {
+  df %>%
+    filter_base_censo() %>%
+    dplyr::filter(tp_etapa_ensino %in% cod_3o_em, tp_situacao == aprovado)
+}
+```
+
+## 3.1 Função Principal de Coorte
+
+Esta função lê os arquivos de três anos diferentes para cada coorte, classifica as trajetórias e consolida os dados. **Note o uso de `read_delim` com o separador `;`**.
+
+```{r funcao_processamento}
+processa_censo_coorte <- function(coorte, anos) {
+  
+  # Helper para montar o caminho do arquivo CSV
+  get_path <- function(y) file.path(BASE_DIR, glue("SITUACAO_ALUNO_{y}_COORTE{coorte}.csv"))
+  
+  # Leitura rápida (read_delim é superior para arquivos grandes)
+  df_tm1 <- read_delim(get_path(anos["tm1"]), delim = ";", show_col_types = FALSE)
+  df_t   <- read_delim(get_path(anos["t"]),   delim = ";", show_col_types = FALSE)
+  df_tp1 <- read_delim(get_path(anos["tp1"]), delim = ";", show_col_types = FALSE)
+
+  # 1. Adiantado (Concluiu no ano t-1)
+  adiantado <- df_tm1 %>%
+    em3_aprov() %>%
+    dplyr::count(co_uf, name = "n") %>%
+    dplyr::mutate(grupo = "coorte_adiantado_Censo")
+
+  # 2. Em Linha (Concluiu no ano t)
+  emlinha <- df_t %>%
+    em3_aprov() %>%
+    dplyr::count(co_uf, name = "n") %>%
+    dplyr::mutate(grupo = "coorte_emlinha_Censo")
+
+  # 3. Atrasado 1 Ano (Concluiu no ano t+1)
+  atras1 <- df_tp1 %>%
+    em3_aprov() %>%
+    dplyr::count(co_uf, name = "n_atras1")
+
+  # 4. Atrasado 2+ Anos (Restante da coorte no ano t+1)
+  total_t1 <- df_tp1 %>%
+    filter_base_censo() %>%
+    dplyr::count(co_uf, name = "total_t1")
+
+  atras2 <- total_t1 %>%
+    dplyr::full_join(atras1, by = "co_uf") %>%
+    dplyr::mutate(
+      total_t1 = tidyr::replace_na(total_t1, 0),
+      n_atras1 = tidyr::replace_na(n_atras1, 0),
+      n = total_t1 - n_atras1
+    ) %>%
+    dplyr::transmute(co_uf, n, grupo = "coorte_atrasado2_Censo")
+
+  # Finalização: Empilhar tudo e formatar
+  atras1_final <- atras1 %>% dplyr::transmute(co_uf, n = n_atras1, grupo = "coorte_atrasado_Censo")
+
+  dplyr::bind_rows(adiantado, emlinha, atras1_final, atras2) %>%
+    dplyr::mutate(
+      uf = as.integer(co_uf),
+      regiao = uf_to_regiao(uf),
+      coorte = as.integer(coorte),
+      ano = unname(ano_iie_map[as.character(coorte)])
+    ) %>%
+    dplyr::select(ano, coorte, uf, regiao, grupo, n)
+}
+```
+
+# 4. Execução e Consolidação
+
+Aqui iteramos sobre as coortes mapeadas e geramos a base nacional (Brasil).
+
+```{r execucao}
+# Processa todas as coortes (1998 a 2004)
+censo_iie_geral <- purrr::imap_dfr(
+  map_coorte_anos,
+  ~ processa_censo_coorte(as.integer(.y), .x)
+)
+
+# Criar agregado nacional (UF = 0)
+brasil_agregado <- censo_iie_geral %>%
+  dplyr::group_by(ano, coorte, grupo) %>%
+  dplyr::summarise(n = sum(n, na.rm = TRUE), .groups = "drop") %>%
+  dplyr::mutate(uf = 0, regiao = "Brasil")
+
+# Unir Estados e Brasil
+base_final <- dplyr::bind_rows(censo_iie_geral, brasil_agregado) %>%
+  dplyr::arrange(ano, coorte, uf, grupo)
+```
+
+# 5. Exportação e Verificação
+
+Salvamos o resultado em um arquivo `.rds` para preservar os tipos de dados para os próximos scripts.
+
+```{r exportacao}
+# Visualização rápida
+head(base_final)
+
+# Exportação
+saveRDS(base_final, file = "../Dados/censo_escolar_iie_geral.rds")
+```
+
+
+# 6. Dicionário de dados das colunas
+
+Para facilitar a interpretação do arquivo final gerado (`censo_escolar_iie_geral.rds`), apresentamos abaixo a descrição de cada variável:
+
+* **ano**: Representa o ano de referência para o cálculo do índice (ex: 2015, 2017, 2019 e 2021).
+
+* **coorte**: Indica o ano de nascimento do grupo de alunos que está sendo acompanhado (1998, 2000, 2002 e 2004).
+
+* **uf**: Código numérico da Unidade da Federação, sendo que o código **0** é reservado para o agregado nacional (Brasil).
+
+* **regiao**: Nome da grande região brasileira (Norte, Nordeste, Sudeste, Sul, Centro-Oeste) ou a marcação "Brasil" para os dados agregados.
+
+* **grupo**: Define a categoria da trajetória escolar do aluno no Censo:
+    - **coorte_adiantado_Censo**: Alunos que atingiram e foram aprovados no 3º ano do Ensino Médio no ano $t-1$.
+    - **coorte_emlinha_Censo**: Alunos que atingiram e foram aprovados no 3º ano do Ensino Médio no ano esperado ($t$).
+    - **coorte_atrasado_Censo**: Alunos que atingiram e foram aprovados no 3º ano do Ensino Médio com um ano de atraso ($t+1$).
+    - **coorte_atrasado2_Censo**: Categoria de complemento, representando os alunos que estavam no sistema no ano $t+1$ mas ainda não haviam concluído o 3º ano (atraso de 2 anos ou mais).
+    
+* **n**: Contagem absoluta de matrículas identificadas em cada cruzamento das variáveis acima.
+
+---
+**Próximos Passos:** Este arquivo servirá de insumo para o script de cálculo do IIE, onde esses dados de matrícula serão confrontados com as estimativas populacionais e dados de fluxo.
+

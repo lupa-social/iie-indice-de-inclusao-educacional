@@ -1,0 +1,179 @@
+---
+title: "Pré-processamento — PNAD Contínua (IIE) GERAL"
+author: "Lupa Social"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# 1. Objetivo
+
+Este script processa os microdados da **PNAD Contínua (2º Trimestre)** para os anos de 2015, 2017, 2019 e 2021. O foco é identificar jovens de **17 anos** (idade de referência da coorte no ano $t$) e classificá-los quanto ao status escolar, especificamente identificando aqueles que estão fora da escola sem ter concluído o Ensino Médio.
+
+# 2. Configuração e Funções de Trajetória
+
+Carregamos o `tidyverse` para manipulação e o `readr` para a leitura rápida dos arquivos CSV.
+
+```{r pacotes}
+library(tidyverse)
+library(glue)
+library(readr)
+```
+
+## 2.1 Funções de Apoio
+
+A PNADc utiliza pesos amostrais. Usaremos a variável `V1028` (peso com calibração) para todas as expansões populacionais.
+
+```{r funcoes_auxiliares}
+BASE_DIR <- "../../Dados"
+
+# Mapeamento Regional
+uf_to_regiao <- function(uf) {
+  dplyr::case_when(
+    uf %in% 11:17 ~ "Norte",
+    uf %in% 21:29 ~ "Nordeste",
+    uf %in% 31:35 ~ "Sudeste",
+    uf %in% 41:43 ~ "Sul",
+    uf %in% 50:53 ~ "Centro-Oeste",
+    uf == 0       ~ "Brasil",
+    TRUE          ~ NA_character_
+  )
+}
+
+# Recorte da coorte de 17 anos
+# A coorte é definida como (Ano de Referência - 17)
+prep_coorte <- function(df, ano_ref) {
+  df %>%
+    rename_with(tolower) %>%
+    mutate(
+      across(c(uf, v20082, v3002, v3009, v3009a, v3003, v3003a, v3013, v1028), 
+             ~ suppressWarnings(as.numeric(.))),
+      ano = as.integer(ano_ref),
+      ano_nasc = as.integer(v20082),
+      coorte_ref = ano - 17
+    ) %>%
+    # Filtramos apenas os jovens que completam 17 anos no ano de referência
+    filter(!is.na(uf), !is.na(ano_nasc), ano_nasc == coorte_ref)
+}
+```
+
+# 3. Lógica de Classificação "Fora da Escola"
+
+A classificação precisa lidar com a transição dos códigos de educação na PNADc. A variável `hasA` identifica se o registro utiliza o formato de perguntas introduzido em 2016/2017 (variáveis com sufixo 'a').
+
+```{r classificacao}
+classifica_pnadc <- function(df) {
+  df %>%
+    mutate(
+      v9 = coalesce(v3009a, v3009),  # Última série concluída
+      v3 = coalesce(v3003a, v3003),  # Série que frequenta
+      hasA = !is.na(v3009a) | !is.na(v3003a),
+
+      var_fora = case_when(
+        # ----- Lógica para 2017, 2019 e 2021 (Novos códigos) -----
+        hasA & v3002 == 1 & !is.na(v3) & v3 >= 8 ~ "Fora_com_EM",
+        hasA & v3002 == 2 & !is.na(v9) & v9 >= 12 ~ "Fora_com_EM",
+        hasA & v3002 == 2 & !is.na(v9) & v9 %in% 9:11 & !is.na(v3013) & v3013 >= 3 ~ "Fora_com_EM",
+        hasA & v3002 == 2 & !is.na(v9) & v9 %in% 9:11 & !is.na(v3013) & v3013 <= 2 ~ "Fora_sem_EM",
+        hasA & v3002 == 2 & !is.na(v9) & v9 <= 8 ~ "Fora_sem_EM",
+
+        # ----- Lógica para 2015 (Códigos Antigos) -----
+        !hasA & v3002 == 1 & !is.na(v3) & v3 >= 7 ~ "Fora_com_EM",
+        !hasA & v3002 == 2 & !is.na(v9) & v9 >= 10 ~ "Fora_com_EM",
+        !hasA & v3002 == 2 & !is.na(v9) & v9 %in% 7:9 & !is.na(v3013) & v3013 >= 3 ~ "Fora_com_EM",
+        !hasA & v3002 == 2 & !is.na(v9) & v9 %in% 7:9 & !is.na(v3013) & v3013 <= 2 ~ "Fora_sem_EM",
+        !hasA & v3002 == 2 & !is.na(v9) & v9 <= 6 ~ "Fora_sem_EM",
+        
+        TRUE ~ "outros"
+      ),
+      # Limpeza de inconsistências (NAs em variáveis chave)
+      var_fora_limpo = if_else(
+        is.na(v3002) | (v3002 == 2 & is.na(v9)), 
+        NA_character_, 
+        var_fora
+      ),
+      peso = as.numeric(v1028)
+    ) %>%
+    filter(!is.na(var_fora_limpo))
+}
+```
+
+# 4. Execução do Processamento
+
+Processamos cada ano individualmente e depois consolidamos os resultados. Note que os arquivos são lidos em formato **CSV**.
+
+```{r processamento_anual}
+processa_ano_pnadc <- function(ano) {
+  path <- file.path(BASE_DIR, glue("PNADC_02{ano}.csv"))
+  
+  # Leitura com read_delim (separador ;)
+  df_raw <- read_delim(path, delim = ";", show_col_types = FALSE)
+  
+  df_raw %>%
+    prep_coorte(ano) %>%
+    classifica_pnadc() %>%
+    group_by(uf, var_fora_limpo) %>%
+    summarise(total_peso = sum(peso, na.rm = TRUE), .groups = "drop") %>%
+    pivot_wider(names_from = var_fora_limpo, values_from = total_peso, values_fill = 0) %>%
+    # Garante a existência das colunas mesmo que o valor seja 0
+    mutate(
+      Fora_com_EM = if_error(Fora_com_EM, 0),
+      Fora_sem_EM = if_error(Fora_sem_EM, 0),
+      outros = if_error(outros, 0)
+    ) %>%
+    transmute(
+      ano = ano,
+      uf = as.integer(uf),
+      regiao = uf_to_regiao(uf),
+      coorte_PNAD = Fora_com_EM + Fora_sem_EM + outros,
+      coorte_fora_sem_EM_PNAD = Fora_sem_EM
+    )
+}
+
+# Helper simples para colunas ausentes
+if_error <- function(x, val) if(exists(substitute(x))) x else val
+
+# Execução para os anos desejados
+pnadc_geral <- map_dfr(c(2015, 2017, 2019, 2021), processa_ano_pnadc)
+```
+
+# 5. Agregação Brasil e Exportação
+
+```{r consolidacao}
+# Criar linha Brasil (UF = 0)
+brasil_agregado <- pnadc_geral %>%
+  group_by(ano) %>%
+  summarise(
+    coorte_PNAD = sum(coorte_PNAD, na.rm = TRUE),
+    coorte_fora_sem_EM_PNAD = sum(coorte_fora_sem_EM_PNAD, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(uf = 0L, regiao = "Brasil")
+
+# Unir e salvar
+pnadc_final <- bind_rows(pnadc_geral, brasil_agregado) %>%
+  arrange(ano, uf)
+
+saveRDS(pnadc_final, file = "../Dados/pnadc_iie_geral.rds")
+```
+
+# 6. Dicionário de colunas
+
+* **ano**: Ano da coleta da PNAD Contínua (2º Trimestre).
+
+* **uf**: Código da Unidade da Federação (0 para o total Brasil).
+
+* **regiao**: Nome da Grande Região correspondente à UF.
+
+* **coorte_PNAD**: Estimativa populacional total de jovens com 17 anos (expandida pelo peso V1028).
+
+* **coorte_fora_sem_EM_PNAD**: Estimativa de jovens de 17 anos que não frequentam a escola e não concluíram o Ensino Médio.
+
+---
