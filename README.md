@@ -1,7 +1,5 @@
 # IIE - Índice de Inclusão Educacional
 
-![Mapa IIE 2021](imgs/mapa_iie_2021.png)
-
 ## Contexto
 
 Esforços têm sido direcionados para a promoção de conhecimento e evidências sobre a educação básica brasileira em suas diferentes etapas de ensino, além do desenvolvimento de métricas que permitam a análise da trajetória escolar básica completa. Esses esforços visam aprimorar uma visão integrada da educação, apoiando seu desenvolvimento com foco na qualidade e equidade educacional.
@@ -10,7 +8,9 @@ No que se refere às métricas sobre as trajetórias escolares, investimos na pr
 
 Nesse contexto, foi criado o Índice de Inclusão Educacional (IIE). Esse índice representa a proporção dos nascidos em um determinado ano que concluiu o ensino médio com até 18 anos, com o nível de proficiência básico ou mais, conforme o SAEB.
 
-O IIE fornece uma leitura ampla do cenário educativo no nível dos estados, quantificando não apenas os estudantes com desempenho adequado, mas também os atrasados e/ou com baixo desempenho educacional. Ele incorpora na análise, de forma inovadora, aqueles que evadiram ao longo da trajetória escolar e são, comumente, ignorados nas análises educacionais. O IIE é projetado para o acompanhamento de gerações sucessivas, permitindo monitorar a evolução intergeracional dos indicadores educacionais e identificar padrões que possam orientar políticas públicas mais eficazes e inclusivas.
+O IIE inova em relação a outros indicadores educacionais mais tradicionais principalmente por conta de três aspectos: (1) a incorporação do fenômeno da evasão, comumente tratado de forma apartada; (2) a facilidade na compreensão do resultado, já que se trata de uma proporção (em comparação ao IDEB e SAEB, por exemplo, cujas escalas não são óbvias); (3) a visão integrada de todo o ciclo da educação básica em um único indicador.
+
+Caso tenha alguma sugestão de aprimoramento ou queira saber mais sobre o IIE, escreva para contato@lupasocial.com.br.
 
 ## Metodologia
 
@@ -30,8 +30,7 @@ Determina a idade em que o Ensino Médio foi concluído:
 
 Classifica a proficiência dos alunos no 3º ano do Ensino Médio:
 * Abaixo do Básico: LP < 300 ou Mat < 300
-* Básico: LP ≥ 300 e Mat ≥ 300, mas < 375
-* Adequado: LP ≥ 375 e Mat ≥ 375
+* Básico: LP ≥ 300 e Mat ≥ 300
 
 #### PNADc:
 
@@ -58,14 +57,57 @@ Para cada faixa etária e nível de proficiência:
 * [PNAD Contínua](https://www.ibge.gov.br/estatisticas/sociais/trabalho/17270-pnad-continua.html)
 * Dados calculados na Sala Segura: [bases intermediárias extraídas da Sedap](./bases%20intermediárias%20extraídas%20da%20Sedap)
 
-## Estudos produzidos
-
-Na pasta "estudos" temos reunidos os estudos já realizados com o IIE.
 
 ## Resultados e código
 
-Temos uma pasta "resultados" com os resultados para os IIE 2013, 2015, 2017, 2019 e 2021 já computados e o código divulgado em seu formato genérico no R para replicação do que já foi feito e disseminação de conhecimento e metodologia.
+Esta seção do repositório contém a estrutura necessária para a reprodução integral do **IIE Geral** para o período de **2015 a 2021**. O fluxo de trabalho está dividido em quatro scripts principais, organizados de forma modular para garantir transparência e eficiência no processamento.
+
+#### Fluxo de processamento
+
+A lógica de cálculo do IIE segue uma ordem de dependência. Primeiro, preparamos os insumos brutos de três fontes distintas e, por fim, integramos esses dados no script de cálculo final.
+
+1. **`01_preprocessamento_censo.Rmd` (Microdados do Censo Escolar)**
+* **O que faz:** identifica as matrículas da coorte de referência e as classifica em quatro trajetórias (adiantado, em linha, atrasado 1 ano ou atrasado 2+ anos).
+* **Importante:** requer acesso aos microdados via sala segura do INEP. Processa os dados de fluxo e aprovação.
 
 
+2. **`02_preprocessamento_saeb.Rmd` (Microdados do SAEB)**
+* **O que faz:** calcula o percentual de alunos que atingiram o nível de aprendizado **Básico** (Proficiência  em Português e Matemática).
+* **Nota Metodológica:** para o ano de 2019, devido à ausência de dados de idade nos microdados públicos do SAEB, o script aplica uma técnica de redistribuição baseada na estrutura observada em 2017.
+
+
+3. **`03_preprocessamento_pnadc.Rmd` (Microdados da PNAD Contínua)**
+* **O que faz:** estima o contingente de jovens de 17 anos que estão **fora da escola** sem ter concluído o Ensino Médio.
+* **Lógica:** este dado é essencial para ajustar o denominador do índice, garantindo que o IIE não ignore os jovens que evadiram do sistema de ensino.
+
+
+4. **`04_calculo_iie_geral.Rmd` (Cálculo Final do Índice)**
+* **O que faz:** realiza a integração final. Ele cruza o volume de alunos aprovados (Censo) com a probabilidade de aprendizado (SAEB) e ajusta a população total pela evasão (PNADc).
+* **Resultado:** gera o arquivo final `iie_geral_2015_2021.xlsx` com os índices por UF e Brasil.
+
+
+#### Premissas Técnicas para Reprodução
+
+* **Formato de Dados:** todos os scripts foram otimizados para leitura de arquivos em formato **CSV** (separador `;`) utilizando a função `read_delim`, garantindo maior velocidade de processamento.
+* **Anos Disponíveis:** o repositório contempla os anos de **2015, 2017, 2019 e 2021**. O ano de 2023 será integrado assim que a totalidade dos dados do Censo Escolar 2024 for disponibilizada para manter a consistência metodológica.
+* **Ambiente:** os scripts estão em formato **R Markdown**, o que permite a geração de relatórios técnicos que documentam não apenas o código, mas a justificativa de cada filtro aplicado.
+
+---
+## Estudos produzidos 
+
+Na pasta "estudos", temos reunidos os estudos já realizados com o IIE.
+
+## Visualização Interativa: Plataforma Looker IIE
+Para uma análise visual e dinâmica, os resultados do IIE estão consolidados em nossa plataforma no Looker Studio. O painel permite explorar os dados além do indicador geral, oferecendo:
+
+* **Granularidade Geográfica**: consultas em nível Brasil, UF e Capitais.
+
+* **Filtros Sociodemográficos**: recortes por sexo e raça/cor.
+
+* **Detalhamento por Disciplina**: resultados específicos de Língua Portuguesa e Matemática.
+
+* **Família IIE**: acesso a indicadores complementares como IIE Legado, Pré-Inclusão e Sucesso Educacional.
+
+🔗 [Plataforma Looker IIE](https://lookerstudio.google.com/s/lAHnTj0l5K4)
 
 
