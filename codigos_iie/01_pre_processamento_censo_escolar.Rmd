@@ -22,7 +22,7 @@ A unidade de análise é a **matrícula**. O objetivo final é classificar os al
 > **Nota de Versão:** Este script processa dados até o ano de referência **2021**. Dados de 2023/2024 foram omitidos para garantir a consistência metodológica antes da liberação total do Censo 2024.
 
 > ### ⚠️ AVISO DE ACESSO AOS DADOS
-> Este pré-processamento é pautado nos **microdados do Censo Escolar**, que contêm informações individualizadas e protegidas por sigilo. O acesso a esses arquivos **requer autorização prévia do INEP** e o processamento deve ser realizado via **Sala Segura (SED/INEP)** ou ambiente controlado equivalente, respeitando a LGPD e os protocolos de segurança institucional.
+> Este pré-processamento é pautado nos **microdados do Censo Escolar**, que contêm informações individualizadas e protegidas por sigilo. O acesso a esses arquivos **requer autorização prévia do INEP** e o processamento deve ser realizado via **Sala Segura (SEDAP/INEP)** ou ambiente controlado equivalente, respeitando a LGPD e os protocolos de segurança institucional.
 
 
 # 2. Configuração do Ambiente

@@ -32,7 +32,7 @@ library(tidyverse)
 library(writexl)
 
 # Diretório de insumos
-DIR_DADOS <- "../Dados"
+DIR_DADOS <- "../dados"
 
 # Leitura dos arquivos RDS
 censo_hist <- readRDS(file.path(DIR_DADOS, "censo_escolar_iie_geral.rds"))

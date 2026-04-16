@@ -55,7 +55,9 @@ Para cada faixa etária e nível de proficiência:
 ## Fonte dos dados
 * [SAEB](https://www.gov.br/inep/pt-br/acesso-a-informacao/dados-abertos/microdados/saeb)
 * [PNAD Contínua](https://www.ibge.gov.br/estatisticas/sociais/trabalho/17270-pnad-continua.html)
-* Dados calculados na Sala Segura: [bases intermediárias extraídas da Sedap](./bases%20intermediárias%20extraídas%20da%20Sedap)
+* Censo Escolar: bases agregadas extraídas via Sala Segura disponíveis na pasta "dados". 
+
+**Nota**: para a reprodução dos scripts de pré-processamento, especialmente o "01_pre_processamento_censo_escolar", são necessários os microdados da Sala Segura. No entanto, as bases de dados agregadas (Censo Escolar, PNADc e SAEB) já estão disponíveis na pasta "dados", o que viabiliza a reprodução do cálculo do IIE por meio do script "04_calculo_iie". 
 
 
 ## Resultados e código
